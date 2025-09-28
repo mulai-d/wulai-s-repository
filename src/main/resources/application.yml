@@ -87,3 +87,10 @@ cos:
     secretKey: xxx
     region: xxx
     bucket: xxx
+
+## 讯飞 AI 配置
+xun-fei:
+  client:
+    appId: 44089388
+    apiSecret: YjYxOGJlZWMzZjZjYzVmY2JmZTc2ODc5
+    apiKey: ace8d450708bf73854f4ecad484fb459
