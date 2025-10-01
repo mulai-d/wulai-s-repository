@@ -1,5 +1,6 @@
 package com.yupi.springbootinit.controller;
 
+import cn.hutool.core.io.FileUtil;
 import com.alibaba.excel.EasyExcel;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -15,6 +16,7 @@ import com.yupi.springbootinit.constant.UserConstant;
 import com.yupi.springbootinit.exception.BusinessException;
 import com.yupi.springbootinit.exception.ThrowUtils;
 import com.yupi.springbootinit.manager.AiManager;
+import com.yupi.springbootinit.manager.RedisLimiterManager;
 import com.yupi.springbootinit.model.dto.chart.*;
 import com.yupi.springbootinit.model.dto.file.UploadFileRequest;
 import com.yupi.springbootinit.model.entity.Chart;
@@ -29,6 +31,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.poi.ss.formula.functions.T;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -37,6 +40,7 @@ import org.springframework.web.multipart.MultipartFile;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import java.io.File;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -58,6 +62,9 @@ public class ChartController {
 
     @Autowired
     private AiManager aiManager;
+
+    @Autowired
+    private RedisLimiterManager redisLimiterManager;
 
     private final static Gson GSON = new Gson();
 
@@ -271,7 +278,17 @@ public class ChartController {
         String chartType = genChartByAiRequest.getChartType();
         ThrowUtils.throwIf(StringUtils.isBlank(goal), ErrorCode.PARAMS_ERROR, "目标为空");
         ThrowUtils.throwIf(StringUtils.isNotBlank(name)&&name.length()>100, ErrorCode.PARAMS_ERROR,"名称过长");
-
+        //文件名、文件大小校验
+        String originalFilename = multipartFile.getOriginalFilename();
+        String suffix = FileUtil.getSuffix(originalFilename);
+        final List<String> suffixs= Arrays.asList("xlsx", "xls", "csv", "xlsm", "xltx", "ods");
+        ThrowUtils.throwIf(!suffixs.contains(suffix), ErrorCode.PARAMS_ERROR, "文件格式不允许");
+        final long ONE_MB = 1024 * 1024;
+        long size = multipartFile.getSize();
+        ThrowUtils.throwIf(size > ONE_MB, ErrorCode.PARAMS_ERROR, "文件大小超过1mb");
+        //限流
+        User loginUser = userService.getLoginUser(request);
+        redisLimiterManager.doLimiter("genChartByAi"+loginUser.getId());
 
 
         String csv = ExcelUtils.excelToCSV(multipartFile);
@@ -300,6 +317,7 @@ public class ChartController {
 
 
         //将结果数据存储到数据库
+
         Chart chart = new Chart();
         chart.setGenChart(genChart);
         chart.setGenResult(genResult);
@@ -307,7 +325,7 @@ public class ChartController {
         chart.setChartData(csv);
         chart.setName(name);
         chart.setGoal(goal);
-        chart.setUserId(1L);
+        chart.setUserId(loginUser.getId());
         boolean save = chartService.save(chart);
         ThrowUtils.throwIf(!save, ErrorCode.SYSTEM_ERROR, "图表保存失败");
 

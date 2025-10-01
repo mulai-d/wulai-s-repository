@@ -4,7 +4,9 @@ import com.yupi.springbootinit.config.WxOpenConfig;
 import javax.annotation.Resource;
 
 import com.yupi.springbootinit.manager.AiManager;
+import com.yupi.springbootinit.manager.RedisLimiterManager;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 /**
@@ -41,5 +43,24 @@ class MainApplicationTests {
                 " 3号,30";
         String s = aiManager.sendMsgToXingHuo(true, c);
         System.out.println("s = " + s);
+    }
+
+    @Autowired
+    private RedisLimiterManager redisLimiterManager;
+
+    @Test
+    public void test1() throws InterruptedException {
+        for (int i = 0; i < 2; i++) {
+            redisLimiterManager.doLimiter("1");
+            System.out.println("成功");
+        }
+
+        System.out.println("睡眠1s");
+        Thread.sleep(1000);
+
+        for (int i = 0; i < 2; i++) {
+            redisLimiterManager.doLimiter("1");
+            System.out.println("成功");
+        }
     }
 }
