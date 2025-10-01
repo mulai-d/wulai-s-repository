@@ -1,5 +1,6 @@
 package com.yupi.springbootinit;
 
+import com.yupi.springbootinit.config.ThreadPoolConfig;
 import com.yupi.springbootinit.config.WxOpenConfig;
 import javax.annotation.Resource;
 
@@ -8,6 +9,9 @@ import com.yupi.springbootinit.manager.RedisLimiterManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadPoolExecutor;
 
 /**
  * 主类测试

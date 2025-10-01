@@ -32,6 +32,7 @@ import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.poi.ss.formula.functions.T;
+import org.checkerframework.checker.units.qual.A;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -42,6 +43,8 @@ import javax.servlet.http.HttpServletRequest;
 import java.io.File;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadPoolExecutor;
 
 /**
  * 帖子接口
@@ -65,6 +68,10 @@ public class ChartController {
 
     @Autowired
     private RedisLimiterManager redisLimiterManager;
+
+
+    @Autowired
+    private ThreadPoolExecutor threadPoolExecutor;
 
     private final static Gson GSON = new Gson();
 
@@ -268,7 +275,7 @@ public class ChartController {
      * @param request
      * @return
      */
-    @PostMapping("/gen")
+    @PostMapping("/gen/async")
     public BaseResponse<BiResultVO> genChartByAi(@RequestPart("file") MultipartFile multipartFile,
                                              GenChartByAiRequest genChartByAiRequest, HttpServletRequest request) {
 
@@ -302,25 +309,8 @@ public class ChartController {
         userInput.append("分析目标：").append(userGoal).append(chartType).append("/n").append("数据：").append(csv);
 
 
-        //调用ai方法，并处理返回值
-        String s = aiManager.sendMsgToXingHuo(true, userInput.toString());
-        String[] split = s.split("'【【【【'");
-        if (split.length < 3) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR);
-        }
-        for (int i = 0; i < split.length; i++) {
-            System.out.println("结果 "+i+" ："+split[i]);
-        }
-        //trim(); 移除字符串首尾的所有空白字符，包括空格、制表符（tab）、换行符等。
-        String genChart = split[1].trim();
-        String genResult = split[2].trim();
-
-
         //将结果数据存储到数据库
-
         Chart chart = new Chart();
-        chart.setGenChart(genChart);
-        chart.setGenResult(genResult);
         chart.setChartType(chartType);
         chart.setChartData(csv);
         chart.setName(name);
@@ -330,13 +320,64 @@ public class ChartController {
         ThrowUtils.throwIf(!save, ErrorCode.SYSTEM_ERROR, "图表保存失败");
 
 
+        //提交图表生成业务任务
+        CompletableFuture.runAsync(() -> {
+            Chart taskChart = new Chart();
+            Long id = chart.getId();
+            taskChart.setId(id);
+            taskChart.setStatus("running");
+            boolean b = chartService.updateById(chart);
+            if (!b){
+                updateChartHandler(id, "修改图表状态为running失败");
+                return;
+            }
+
+
+            //调用ai方法，并处理返回值
+            String s = aiManager.sendMsgToXingHuo(true, userInput.toString());
+            String[] split = s.split("'【【【【'");
+            if (split.length < 3) {
+                updateChartHandler(id, "ai生成图表失败");
+                return;
+            }
+            for (int i = 0; i < split.length; i++) {
+                System.out.println("结果 "+i+" ："+split[i]);
+            }
+            //trim(); 移除字符串首尾的所有空白字符，包括空格、制表符（tab）、换行符等。
+            String genChart = split[1].trim();
+            String genResult = split[2].trim();
+            Chart resultChart = new Chart();
+            resultChart.setId(id);
+            resultChart.setGenChart(genChart);
+            resultChart.setGenResult(genResult);
+            resultChart.setStatus("succeed");
+            boolean b1 = chartService.updateById(resultChart);
+            if (!b1){
+                updateChartHandler(id, "修改chart状态为succeed和保存图表信息失败");
+                return;
+            }
+        }, threadPoolExecutor);
+
+
         BiResultVO biResultVO = new BiResultVO();
-        biResultVO.setGenChart(genChart);
-        biResultVO.setGenResult(genResult);
+//        biResultVO.setGenChart(genChart);
+//        biResultVO.setGenResult(genResult);
         biResultVO.setChartId(chart.getId());
 
         return ResultUtils.success(biResultVO);
 
+    }
+
+
+    private void updateChartHandler(Long chartId, String message) {
+        Chart chart = new Chart();
+        chart.setId(chartId);
+        chart.setStatus("failed");
+        chart.setExecMessage(message);
+        boolean b = chartService.updateById(chart);
+        if (!b) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "修改"+chartId+"图表状态为failed，添加执行信息失败");
+        }
     }
 
 
