@@ -1,6 +1,7 @@
 package com.yupi.springbootinit.controller;
 
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.json.JSONUtil;
 import com.alibaba.excel.EasyExcel;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -23,10 +24,12 @@ import com.yupi.springbootinit.model.entity.Chart;
 import com.yupi.springbootinit.model.entity.User;
 import com.yupi.springbootinit.model.enums.FileUploadBizEnum;
 import com.yupi.springbootinit.model.vo.BiResultVO;
+import com.yupi.springbootinit.model.vo.MqMessageVO;
 import com.yupi.springbootinit.service.ChartService;
 import com.yupi.springbootinit.service.UserService;
 import com.yupi.springbootinit.utils.ExcelUtils;
 import com.yupi.springbootinit.utils.SqlUtils;
+import com.yupi.springbootinit.znbimq.Producer;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.RandomStringUtils;
@@ -72,6 +75,9 @@ public class ChartController {
 
     @Autowired
     private ThreadPoolExecutor threadPoolExecutor;
+
+    @Autowired
+    private Producer producer;
 
     private final static Gson GSON = new Gson();
 
@@ -326,7 +332,7 @@ public class ChartController {
             Long id = chart.getId();
             taskChart.setId(id);
             taskChart.setStatus("running");
-            boolean b = chartService.updateById(chart);
+            boolean b = chartService.updateById(taskChart);
             if (!b){
                 updateChartHandler(id, "修改图表状态为running失败");
                 return;
@@ -378,6 +384,81 @@ public class ChartController {
         if (!b) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "修改"+chartId+"图表状态为failed，添加执行信息失败");
         }
+    }
+
+
+
+    /**
+     * 智能分析
+     *
+     * @param multipartFile
+     * @param genChartByAiRequest
+     * @param request
+     * @return
+     */
+    @PostMapping("/gen/async/mq")
+    public BaseResponse<BiResultVO> genChartByAiMq(@RequestPart("file") MultipartFile multipartFile,
+                                                 GenChartByAiRequest genChartByAiRequest, HttpServletRequest request) {
+
+        //参数校验
+        String name = genChartByAiRequest.getName();
+        String goal = genChartByAiRequest.getGoal();
+        String chartType = genChartByAiRequest.getChartType();
+        ThrowUtils.throwIf(StringUtils.isBlank(goal), ErrorCode.PARAMS_ERROR, "目标为空");
+        ThrowUtils.throwIf(StringUtils.isNotBlank(name)&&name.length()>100, ErrorCode.PARAMS_ERROR,"名称过长");
+        //文件名、文件大小校验
+        String originalFilename = multipartFile.getOriginalFilename();
+        String suffix = FileUtil.getSuffix(originalFilename);
+        final List<String> suffixs= Arrays.asList("xlsx", "xls", "csv", "xlsm", "xltx", "ods");
+        ThrowUtils.throwIf(!suffixs.contains(suffix), ErrorCode.PARAMS_ERROR, "文件格式不允许");
+        final long ONE_MB = 1024 * 1024;
+        long size = multipartFile.getSize();
+        ThrowUtils.throwIf(size > ONE_MB, ErrorCode.PARAMS_ERROR, "文件大小超过1mb");
+        //限流
+        User loginUser = userService.getLoginUser(request);
+        redisLimiterManager.doLimiter("genChartByAi"+loginUser.getId());
+
+
+        String csv = ExcelUtils.excelToCSV(multipartFile);
+        //构造分析需求字符串
+        StringBuilder userInput = new StringBuilder();
+//        userInput.append("你是一个数据分析师，接下来我会给你分析目标和数据，请给我分析结论");
+        String userGoal=goal;
+        if (StringUtils.isNotBlank(chartType)) {
+            userGoal=goal+",请使用"+chartType;
+        }
+        userInput.append("分析目标：").append(userGoal).append(chartType).append("/n").append("数据：").append(csv);
+        String userInputString = userInput.toString();
+
+
+        //将结果数据存储到数据库
+        Chart chart = new Chart();
+        chart.setChartType(chartType);
+        chart.setChartData(csv);
+        chart.setName(name);
+        chart.setGoal(goal);
+        chart.setUserId(loginUser.getId());
+        boolean save = chartService.save(chart);
+        ThrowUtils.throwIf(!save, ErrorCode.SYSTEM_ERROR, "图表保存失败");
+
+
+        //使用rabbitmq提交任务，把任务提交至rabbitmq中
+        MqMessageVO message = new MqMessageVO();
+        message.setChart(chart);
+        message.setUserInput(userInputString);
+
+        log.info("准备向mq发送任务");
+        producer.sendMessage(message);
+        log.info("已经向mq发送任务");
+
+
+        BiResultVO biResultVO = new BiResultVO();
+//        biResultVO.setGenChart(genChart);
+//        biResultVO.setGenResult(genResult);
+        biResultVO.setChartId(chart.getId());
+
+        return ResultUtils.success(biResultVO);
+
     }
 
 

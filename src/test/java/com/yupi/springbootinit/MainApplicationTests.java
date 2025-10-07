@@ -6,7 +6,9 @@ import javax.annotation.Resource;
 
 import com.yupi.springbootinit.manager.AiManager;
 import com.yupi.springbootinit.manager.RedisLimiterManager;
+import com.yupi.springbootinit.znbimq.Producer;
 import org.junit.jupiter.api.Test;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -67,4 +69,13 @@ class MainApplicationTests {
             System.out.println("成功");
         }
     }
+
+
+    @Autowired
+    private Producer producer;
+//
+//    @Test
+//    public void testRabbitTemplate() {
+//        producer.sendMessage("test_exchange", "routing", "牧濑红莉栖");
+//    }
 }
