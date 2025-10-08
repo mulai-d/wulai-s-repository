@@ -99,3 +99,11 @@ xun-fei:
     appId: 44089388
     apiSecret: YjYxOGJlZWMzZjZjYzVmY2JmZTc2ODc5
     apiKey: ace8d450708bf73854f4ecad484fb459
+
+
+rocketmq:
+  name-server: 127.0.0.1:9876  # RocketMQ NameServer 地址
+  producer:
+    group: my-producer-group   # 生产者组名
+    send-message-timeout: 3000 # 发送超时时间(ms)
+    retry-times-when-send-failed: 2  # 发送失败重试次数

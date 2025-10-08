@@ -1,12 +1,17 @@
 package com.yupi.springbootinit;
 
+import cn.hutool.json.JSONUtil;
 import com.yupi.springbootinit.config.ThreadPoolConfig;
 import com.yupi.springbootinit.config.WxOpenConfig;
 import javax.annotation.Resource;
 
 import com.yupi.springbootinit.manager.AiManager;
 import com.yupi.springbootinit.manager.RedisLimiterManager;
+import com.yupi.springbootinit.model.entity.Chart;
+import com.yupi.springbootinit.model.vo.MqMessageVO;
+import com.yupi.springbootinit.service.ChartService;
 import com.yupi.springbootinit.znbimq.Producer;
+import com.yupi.springbootinit.znbimq.ProducerRocketMq;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -78,4 +83,25 @@ class MainApplicationTests {
 //    public void testRabbitTemplate() {
 //        producer.sendMessage("test_exchange", "routing", "牧濑红莉栖");
 //    }
+
+    @Autowired
+    private ProducerRocketMq producerRocketMq;
+
+    @Autowired
+    private ChartService chartService;
+
+    @Test
+    public void testRocketmq(){
+        Chart byId = chartService.getById(1975471552530403329L);
+        MqMessageVO mqMessageVO = new MqMessageVO();
+        mqMessageVO.setChart(byId);
+        mqMessageVO.setUserInput("hhhh");
+        producerRocketMq.sendMessage(JSONUtil.toJsonStr(mqMessageVO));
+    }
+
+//    @Test
+//    public void testRocketmq2(){
+//
+//    }
+
 }
